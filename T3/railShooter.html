@@ -230,6 +230,7 @@
    const DIST_MAX = CENTRO - RAIO_KNOB * 0.4;
 
    let pointerAtivoId = null;
+   let joystickFrame = null;
 
    function posicionarKnob(x, y) {
       joystickKnob.style.left = `${CENTRO + x - RAIO_KNOB}px`;
@@ -256,12 +257,23 @@
       const nx = dx / DIST_MAX;
       const ny = dy / DIST_MAX;
 
-      window.dispatchEvent(new CustomEvent('joystickMove', { detail: { x: nx, y: ny } }));
+      if (joystickFrame) {
+         cancelAnimationFrame(joystickFrame);
+      }
+
+      joystickFrame = requestAnimationFrame(() => {
+         joystickFrame = null;
+         window.dispatchEvent(new CustomEvent('joystickMove', { detail: { x: nx, y: ny } }));
+      });
    }
 
    function finalizarJoystick(e) {
       if (e.pointerId !== pointerAtivoId) return;
       pointerAtivoId = null;
+      if (joystickFrame) {
+         cancelAnimationFrame(joystickFrame);
+         joystickFrame = null;
+      }
       posicionarKnob(0, 0);
       window.dispatchEvent(new CustomEvent('joystickEnd'));
    }

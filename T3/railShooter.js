@@ -28,8 +28,10 @@ let scene, renderer, camera;
 scene = new THREE.Scene();
 renderer = initRenderer();
 
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const isMobile = window.matchMedia("(max-width: 900px), (pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 1.75));
+renderer.shadowMap.enabled = !isMobile;
+renderer.shadowMap.type = isMobile ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
 
 camera = new THREE.PerspectiveCamera(
   60,
@@ -157,7 +159,7 @@ let aviao = null;
 loader.load("./assets/aviao.glb", function (gltf) {
   aviao = gltf.scene;
   aviao.position.set(0, 20, 0);
-  aviao.scale.set(1.5, 1.5, 1.5);
+  aviao.scale.set(isMobile ? 0.95 : 1.5, isMobile ? 0.95 : 1.5, isMobile ? 0.95 : 1.5);
   aviao.rotation.y = Math.PI / 1.0;
   scene.add(aviao);
   // Agora que o avião foi adicionado, inicialize as BBs e healthpacks
@@ -314,6 +316,24 @@ const LIMITE_Y_MAX = 30;
 const LIMITE_X_MIN = -70;
 const LIMITE_X_MAX = 70;
 
+function limitarPontoVisivel(ponto) {
+  if (!isMobile) {
+    ponto.x = THREE.MathUtils.clamp(ponto.x, LIMITE_X_MIN, LIMITE_X_MAX);
+    ponto.y = THREE.MathUtils.clamp(ponto.y, LIMITE_Y_MIN, LIMITE_Y_MAX);
+    return ponto;
+  }
+
+  const distanciaPlano = Math.max(1, aviao ? aviao.position.z - camera.position.z : 30);
+  const halfHeight = distanciaPlano * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const halfWidth = halfHeight * camera.aspect;
+  const margemX = halfWidth * 0.08;
+  const margemY = halfHeight * 0.08;
+
+  ponto.x = THREE.MathUtils.clamp(ponto.x, -halfWidth + margemX, halfWidth - margemX);
+  ponto.y = THREE.MathUtils.clamp(ponto.y, 4 + margemY, halfHeight - margemY);
+  return ponto;
+}
+
 window.addEventListener("mousemove", function (e) {
   if (!aviao) return; // aguarda avião carregar
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -327,17 +347,7 @@ window.addEventListener("mousemove", function (e) {
   planoMouse.setFromNormalAndCoplanarPoint(planeNormal, planePoint);
 
   if (raycaster.ray.intersectPlane(planoMouse, targetPoint)) {
-    targetPoint.y = THREE.MathUtils.clamp(
-      targetPoint.y,
-      LIMITE_Y_MIN,
-      LIMITE_Y_MAX,
-    );
-    targetPoint.x = THREE.MathUtils.clamp(
-      targetPoint.x,
-      LIMITE_X_MIN,
-      LIMITE_X_MAX,
-    );
-
+    limitarPontoVisivel(targetPoint);
     cursor3D.position.copy(targetPoint);
   }
 
@@ -356,15 +366,16 @@ window.addEventListener("mousemove", function (e) {
 // A mira (cursor3D / targetPoint) é deslocada de forma incremental, e o avião
 // dispara automaticamente enquanto a mira estiver sendo modificada.
 
-const JOYSTICK_VELOCIDADE = 1.0; // velocidade de deslocamento da mira por frame
+const JOYSTICK_VELOCIDADE = isMobile ? 0.9 : 1.0; // velocidade de deslocamento da mira por frame
 let joystickAtivo = false;
 let joystickVetor = { x: 0, y: 0 };
+let joystickPending = { x: 0, y: 0 };
+let joystickFrameScheduled = false;
 
-window.addEventListener("joystickMove", (e) => {
-  if (!aviao) return;
-
-  joystickVetor.x = e.detail.x;
-  joystickVetor.y = e.detail.y;
+function flushJoystickInput() {
+  joystickFrameScheduled = false;
+  joystickVetor.x = joystickPending.x;
+  joystickVetor.y = joystickPending.y;
 
   if (!joystickAtivo) {
     joystickAtivo = true;
@@ -381,12 +392,26 @@ window.addEventListener("joystickMove", (e) => {
   mouseTimer = setTimeout(() => {
     mouseMovendo = false;
   }, 100);
+}
+
+window.addEventListener("joystickMove", (e) => {
+  if (!aviao) return;
+
+  joystickPending.x = e.detail.x;
+  joystickPending.y = e.detail.y;
+
+  if (!joystickFrameScheduled) {
+    joystickFrameScheduled = true;
+    requestAnimationFrame(flushJoystickInput);
+  }
 });
 
 window.addEventListener("joystickEnd", () => {
   joystickAtivo = false;
   joystickVetor.x = 0;
   joystickVetor.y = 0;
+  joystickPending.x = 0;
+  joystickPending.y = 0;
 
   clearInterval(intervaloDisparo);
   intervaloDisparo = null;
@@ -400,17 +425,7 @@ function atualizarMiraPorJoystick() {
   cursor3D.position.x += joystickVetor.x * JOYSTICK_VELOCIDADE;
   cursor3D.position.y -= joystickVetor.y * JOYSTICK_VELOCIDADE; // eixo Y da tela é invertido
 
-  cursor3D.position.x = THREE.MathUtils.clamp(
-    cursor3D.position.x,
-    LIMITE_X_MIN,
-    LIMITE_X_MAX,
-  );
-  cursor3D.position.y = THREE.MathUtils.clamp(
-    cursor3D.position.y,
-    LIMITE_Y_MIN,
-    LIMITE_Y_MAX,
-  );
-
+  limitarPontoVisivel(cursor3D.position);
   targetPoint.copy(cursor3D.position);
 }
 
@@ -441,7 +456,7 @@ loader.load("./assets/destroyer.glb", function (gltf) {
   const aviaoZ = aviao ? aviao.position.z : camera.position.z;
   fighter.position.set(-300, 20, aviaoZ - 100);
   fighter.rotation.y = 0;
-  fighter.scale.set(0.5, 0.5, 0.5);
+  fighter.scale.set(isMobile ? 0.3 : 0.5, isMobile ? 0.3 : 0.5, isMobile ? 0.3 : 0.5);
   scene.add(fighter);
   asset.object = fighter;
   asset.loaded = true;
@@ -489,6 +504,25 @@ function spawnProximoFighter() {
 let fighterExplosionPlayed = false;
 let fighter2ExplosionPlayed = false;
 const movimentosFighters = new Map();
+
+function fighterSaiuDaTela(inimigo) {
+  if (!isMobile || !inimigo || !camera) return false;
+
+  const pos = new THREE.Vector3();
+  inimigo.getWorldPosition(pos);
+  const distanciaPlano = Math.max(1, pos.z - camera.position.z);
+  const halfHeight = distanciaPlano * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const halfWidth = halfHeight * camera.aspect;
+
+  return (
+    pos.x < camera.position.x - halfWidth * 1.2 ||
+    pos.x > camera.position.x + halfWidth * 1.2 ||
+    pos.y < -10 ||
+    pos.y > 40 ||
+    pos.z > camera.position.z + halfHeight * 1.2 ||
+    pos.z < camera.position.z - halfHeight * 2.4
+  );
+}
 
 function obterYAlvoInimigo(inimigo, yBase) {
   if (!inimigo) return yBase;
@@ -563,7 +597,7 @@ function moverFighter() {
 
     asset.bb.setFromObject(fighter);
 
-    if (fighter.position.z > camera.position.z ) {
+    if (fighterSaiuDaTela(fighter)) {
       // Remover tiros deste fighter
       for (let i = tirosInimigos.length - 1; i >= 0; i--) {
         if (tirosInimigos[i].origem === fighter) {
@@ -575,7 +609,7 @@ function moverFighter() {
       }
 
       scene.remove(fighter);
-asset.loaded = false;
+      asset.loaded = false;
       fighterAbatido = false;
       fighterExplosionPlayed = false;
     }
@@ -602,7 +636,7 @@ asset.loaded = false;
       fighter2.rotation.x -= 0.1;
     }
 
-    if (fighter2.position.z > camera.position.z) {
+    if (fighterSaiuDaTela(fighter2)) {
       scene.remove(fighter2);
       fighter2.rotation.y = Math.PI;
       fighter2.rotation.x = 0;
@@ -624,7 +658,7 @@ asset.loaded = false;
 
     asset2.bb.setFromObject(fighter2);
 
-    if (fighter2.position.x < -150) {
+    if (fighterSaiuDaTela(fighter2)) {
       // Remover tiros deste fighter
       for (let i = tirosInimigos.length - 1; i >= 0; i--) {
         if (tirosInimigos[i].origem === fighter2) {
@@ -649,6 +683,7 @@ asset.loaded = false;
 
 const tirosInimigos = [];
 let contadorColisoesAviao = 0;
+const MAX_TIROS_INIMIGOS = isMobile ? 6 : 12;
 
 function cloneTiroInimigo(spaceShip) {
   if (!spaceShip) return;
@@ -674,6 +709,15 @@ function cloneTiroInimigo(spaceShip) {
   clone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direcao);
 
   const bb = new THREE.Box3().setFromObject(clone);
+
+  if (tirosInimigos.length >= MAX_TIROS_INIMIGOS) {
+    const tiroAntigo = tirosInimigos.shift();
+    if (tiroAntigo?.mesh) {
+      scene.remove(tiroAntigo.mesh);
+      tiroAntigo.mesh.geometry.dispose();
+      tiroAntigo.mesh.material.dispose();
+    }
+  }
 
   scene.add(clone);
 
@@ -732,6 +776,7 @@ function reiniciarIntervalos() {
 //-----------------------------------------------------------------------------------------------
 
 const tirosPlayer = [];
+const MAX_TIROS_PLAYER = isMobile ? 8 : 16;
 
 let fighterAbatido = false;
 let fighter2Abatido = false;
@@ -762,6 +807,16 @@ function atirar() {
   tiro.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direcao);
 
   const bb = new THREE.Box3().setFromObject(tiro);
+
+  if (tirosPlayer.length >= MAX_TIROS_PLAYER) {
+    const tiroAntigo = tirosPlayer.shift();
+    if (tiroAntigo?.mesh) {
+      scene.remove(tiroAntigo.mesh);
+      tiroAntigo.mesh.geometry.dispose();
+      tiroAntigo.mesh.material.dispose();
+    }
+  }
+
   scene.add(tiro);
   tirosPlayer.push({ mesh: tiro, bb, direcao, velocidade: 2 });
 }
@@ -919,6 +974,8 @@ playBackgroundMusic();
 
 //-----------------------------------------------------------------------------------------------
 
+let frameCounter = 0;
+
 function render() {
   stats.update();
   if (podeMover && aviao) {
@@ -932,14 +989,18 @@ function render() {
       aviao,
     );
     cursor3D.position.z -= VELOCIDADE;
-    updateChunks(camera, scene);
+    if (frameCounter % (isMobile ? 2 : 1) === 0) {
+      updateChunks(camera, scene);
+    }
     camera.position.z -= VELOCIDADE;
     aviao.position.z -= VELOCIDADE;
     tiroPlayerAnimacao();
     tiroInimigoAnimacao();
     moverFighter();
     atualizarCamera();
-    atualizarBBsAviao();
+    if (frameCounter % (isMobile ? 2 : 1) === 0) {
+      atualizarBBsAviao();
+    }
   }
 
   dirLight.position.set(
@@ -966,6 +1027,8 @@ function render() {
   atualizarVida();
 
   animarHealthpack(VELOCIDADE);
+
+  frameCounter += 1;
 
   const delta = clock.getDelta();
   updateWater(delta, camera);
