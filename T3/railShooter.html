@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+   <title>Rail Shooter</title>
+
+   <link rel="shortcut icon" href="../favicon.ico">
+   <link rel="stylesheet" href="../html/resources/default.css">
+   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+   <style>
+      * {
+         -webkit-tap-highlight-color: transparent;
+      }
+
+      #lifeBar {
+         position: absolute;
+
+         height: 15px;
+         border-radius: 10px;
+         background: linear-gradient(to right, #11bfc2, #00ffaa);
+      }
+
+      #lifeBarContainer {
+         position: absolute;
+         top: 10px;
+         left: 40vw;
+         width: 200px;
+         height: 15px;
+         border-radius: 15px;
+         background-color: #0e0b13;
+         border: 2px solid #23242a;
+      }
+
+      #webgl-output, #container {
+         display: none;
+      }
+
+      #telaCarregamento {
+         position: relative;
+         display: flex;
+         justify-content: center;
+         align-items: center;
+         height: 100vh;
+         flex-direction: column;
+         background: #0e0b13 url("assets/background.png") center center / cover no-repeat;
+         overflow: hidden;
+      }
+
+      #telaCarregamento img {
+         display: none;
+      }
+
+      #barraCarregamento,
+      #iniciarButton {
+         position: relative;
+         z-index: 1;
+      }
+
+      #barraCarregamento {
+         width: 300px;
+         height: 15px;
+         background-color: #626262;
+         border-radius: 5px;
+         overflow: hidden;
+         margin-bottom: 20px;
+      }
+
+      #iniciarButton {
+         padding: 10px 20px;
+         font-size: 16px;
+         background-color: #11bfc2;
+         color: white;
+         border: none;
+         border-radius: 5px;
+         cursor: pointer;
+      }
+
+      /* ---------------------------------------------------------------- */
+      /* Controles superiores (fullscreen / música)                       */
+      /* ---------------------------------------------------------------- */
+      #topControls {
+         position: fixed;
+         top: 12px;
+         right: 12px;
+         z-index: 30;
+         display: flex;
+         gap: 10px;
+      }
+
+      .ctrlButton {
+         width: 46px;
+         height: 46px;
+         border-radius: 50%;
+         background-color: rgba(14, 11, 19, 0.75);
+         border: 2px solid #23242a;
+         color: #00ffaa;
+         font-size: 20px;
+         display: flex;
+         align-items: center;
+         justify-content: center;
+         cursor: pointer;
+         user-select: none;
+         touch-action: manipulation;
+      }
+
+      .ctrlButton:active {
+         background-color: rgba(17, 191, 194, 0.35);
+      }
+
+      /* ---------------------------------------------------------------- */
+      /* Joystick virtual                                                  */
+      /* ---------------------------------------------------------------- */
+      #joystickContainer {
+         position: fixed;
+         left: 25px;
+         bottom: 25px;
+         width: 120px;
+         height: 120px;
+         z-index: 30;
+         touch-action: none;
+         display: none; /* exibido via CSS media query abaixo, em telas touch/estreitas */
+      }
+
+      #joystickBase {
+         position: absolute;
+         inset: 0;
+         border-radius: 50%;
+         background: rgba(14, 11, 19, 0.55);
+         border: 2px solid #23242a;
+      }
+
+      #joystickKnob {
+         position: absolute;
+         width: 50px;
+         height: 50px;
+         border-radius: 50%;
+         background: linear-gradient(to right, #11bfc2, #00ffaa);
+         top: 35px;
+         left: 35px;
+         pointer-events: none;
+         transition: transform 0.05s linear;
+      }
+
+      /* Mostra o joystick em dispositivos com ponteiro "grosso" (touch) ou telas estreitas */
+      @media (max-width: 900px), (pointer: coarse) {
+         #joystickContainer {
+            display: block;
+         }
+
+         #lifeBarContainer {
+            left: 30vw;
+            width: 150px;
+         }
+
+         .ctrlButton {
+            width: 40px;
+            height: 40px;
+            font-size: 18px;
+         }
+      }
+   </style>
+</head>
+
+<body>
+   <!-- Import maps polyfill -- Remove this when import maps will be widely supported-->
+   <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+   <script type="importmap">
+         {"imports": {"three": "../build/three.module.js"}} 
+      </script>
+
+ <script type="module">
+   const progressoEl = document.getElementById('barraProgresso');
+   const iniciarButton = document.getElementById('iniciarButton');
+
+   window.addEventListener('loadingProgress', (e) => {
+      progressoEl.style.width = e.detail + '%';
+   });
+
+   window.addEventListener('loadingComplete', () => {
+      iniciarButton.disabled = false;
+      iniciarButton.textContent = 'START';
+   });
+
+   iniciarButton.addEventListener('click', () => {
+      document.getElementById('telaCarregamento').style.display = 'none';
+      document.getElementById('webgl-output').style.display = 'block';
+      document.getElementById('container').style.display = 'block';
+            window.dispatchEvent(new CustomEvent('iniciarJogo'));
+
+   });
+
+   /* ------------------------------------------------------------------ */
+   /* Botão de fullscreen                                                */
+   /* ------------------------------------------------------------------ */
+   const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+   fullscreenBtn.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+         document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+         document.exitFullscreen();
+      }
+   });
+
+   document.addEventListener('fullscreenchange', () => {
+      fullscreenBtn.textContent = document.fullscreenElement ? '⛶' : '⛶';
+      fullscreenBtn.title = document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia';
+   });
+
+   /* ------------------------------------------------------------------ */
+   /* Botão de música                                                     */
+   /* ------------------------------------------------------------------ */
+   const musicBtn = document.getElementById('musicBtn');
+   let musicOn = true;
+
+   musicBtn.addEventListener('click', () => {
+      musicOn = !musicOn;
+      musicBtn.textContent = musicOn ? '🔊' : '🔇';
+      window.dispatchEvent(new CustomEvent('toggleMusic'));
+   });
+
+   /* ------------------------------------------------------------------ */
+   /* Joystick virtual (funciona com touch e mouse via Pointer Events)   */
+   /* ------------------------------------------------------------------ */
+   const joystickContainer = document.getElementById('joystickContainer');
+   const joystickKnob = document.getElementById('joystickKnob');
+
+   const CENTRO = 60;    // metade da largura/altura do container (120px)
+   const RAIO_KNOB = 25;  // metade da largura/altura do knob (50px)
+   const DIST_MAX = CENTRO - RAIO_KNOB * 0.4;
+
+   let pointerAtivoId = null;
+
+   function posicionarKnob(x, y) {
+      joystickKnob.style.left = `${CENTRO + x - RAIO_KNOB}px`;
+      joystickKnob.style.top = `${CENTRO + y - RAIO_KNOB}px`;
+   }
+
+   function processarMovimento(clientX, clientY) {
+      const rect = joystickContainer.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      let dx = clientX - cx;
+      let dy = clientY - cy;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > DIST_MAX) {
+         dx = (dx / dist) * DIST_MAX;
+         dy = (dy / dist) * DIST_MAX;
+      }
+
+      posicionarKnob(dx, dy);
+
+      // Vetor normalizado entre -1 e 1
+      const nx = dx / DIST_MAX;
+      const ny = dy / DIST_MAX;
+
+      window.dispatchEvent(new CustomEvent('joystickMove', { detail: { x: nx, y: ny } }));
+   }
+
+   function finalizarJoystick(e) {
+      if (e.pointerId !== pointerAtivoId) return;
+      pointerAtivoId = null;
+      posicionarKnob(0, 0);
+      window.dispatchEvent(new CustomEvent('joystickEnd'));
+   }
+
+   joystickContainer.addEventListener('pointerdown', (e) => {
+      pointerAtivoId = e.pointerId;
+      joystickContainer.setPointerCapture(e.pointerId);
+      processarMovimento(e.clientX, e.clientY);
+   });
+
+   joystickContainer.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== pointerAtivoId) return;
+      processarMovimento(e.clientX, e.clientY);
+   });
+
+   joystickContainer.addEventListener('pointerup', finalizarJoystick);
+   joystickContainer.addEventListener('pointercancel', finalizarJoystick);
+</script>
+     <div id="telaCarregamento">
+      <img src="assets/background.png" alt="Background" style="width: 100vw; height: 100vh; object-fit: cover; position: absolute; top: 0; left: 0; z-index: -1;">
+      <div id="barraCarregamento">
+   <div id="barraProgresso" style="width:0%;height:100%;background:linear-gradient(to right, #11bfc2, #00ffaa);transition:width .2s;"></div>
+</div>
+<button id="iniciarButton" disabled>Carregando...</button>
+     </div>
+
+      <div id="container">
+         <div id="lifeBarContainer">
+            <div id="lifeBar"></div>
+            <div id="modoInvencivel" style="display: none;">Modo de invencibilidade ativo</div>
+         </div>
+
+         <div id="topControls">
+            <button id="fullscreenBtn" class="ctrlButton" title="Tela cheia">⛶</button>
+            <button id="musicBtn" class="ctrlButton" title="Música">🔊</button>
+         </div>
+
+         <div id="joystickContainer">
+            <div id="joystickBase"></div>
+            <div id="joystickKnob"></div>
+         </div>
+      </div>
+
+
+   <div id="webgl-output" >
+      <script type="module" src="railShooter.js"></script>
+   </div>
+</body>
+
+</html>
