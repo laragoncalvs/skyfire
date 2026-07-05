@@ -24,14 +24,19 @@ import { loadingManager } from "./loadingManager.js";
 //-----------------------------------------------------------------------------------------------
 let jogoIniciado = false;
 
+// Detecção de mobile. Usada apenas para ligar/desligar comportamentos extras;
+// nenhum bloco de código do desktop foi removido ou alterado por causa disso.
+const isMobile =
+  "ontouchstart" in window ||
+  navigator.maxTouchPoints > 0 ||
+  /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 let scene, renderer, camera;
 scene = new THREE.Scene();
 renderer = initRenderer();
 
-const isMobile = window.matchMedia("(max-width: 900px), (pointer: coarse)").matches || navigator.maxTouchPoints > 0;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 1.75));
-renderer.shadowMap.enabled = !isMobile;
-renderer.shadowMap.type = isMobile ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 camera = new THREE.PerspectiveCamera(
   60,
@@ -48,6 +53,7 @@ window.addEventListener(
   "resize",
   function () {
     onWindowResize(camera, renderer);
+    calcularLimitesTelaMobile();
   },
   false,
 );
@@ -159,12 +165,13 @@ let aviao = null;
 loader.load("./assets/aviao.glb", function (gltf) {
   aviao = gltf.scene;
   aviao.position.set(0, 20, 0);
-  aviao.scale.set(isMobile ? 0.95 : 1.5, isMobile ? 0.95 : 1.5, isMobile ? 0.95 : 1.5);
+  aviao.scale.set(1.5, 1.5, 1.5);
   aviao.rotation.y = Math.PI / 1.0;
   scene.add(aviao);
   // Agora que o avião foi adicionado, inicialize as BBs e healthpacks
   inicializarBBsAviao();
   initHealthpack(scene, aviao);
+  calcularLimitesTelaMobile();
 });
 
 let aviaoAsset = {
@@ -311,30 +318,44 @@ const planePoint = new THREE.Vector3(0, 0, 0);
 const cursor3D = new THREE.Mesh(cursorGeo, cursorMat);
 scene.add(cursor3D);
 
+// No mobile o cursor não deve aparecer: toda mira é feita apenas pelo joystick,
+// sem nenhum indicador visual de mouse/toque na tela.
+if (isMobile) {
+  cursor3D.visible = false;
+}
+
 const LIMITE_Y_MIN = 5;
 const LIMITE_Y_MAX = 30;
 const LIMITE_X_MIN = -70;
 const LIMITE_X_MAX = 70;
 
-function limitarPontoVisivel(ponto) {
-  if (!isMobile) {
-    ponto.x = THREE.MathUtils.clamp(ponto.x, LIMITE_X_MIN, LIMITE_X_MAX);
-    ponto.y = THREE.MathUtils.clamp(ponto.y, LIMITE_Y_MIN, LIMITE_Y_MAX);
-    return ponto;
-  }
+// Limites equivalentes, calculados dinamicamente para caber na tela do celular
+// (aspect ratio diferente do desktop). Em desktop esses valores nunca são usados.
+let LIMITE_X_MIN_MOBILE = LIMITE_X_MIN;
+let LIMITE_X_MAX_MOBILE = LIMITE_X_MAX;
+let LIMITE_Y_MIN_MOBILE = LIMITE_Y_MIN;
+let LIMITE_Y_MAX_MOBILE = LIMITE_Y_MAX;
 
-  const distanciaPlano = Math.max(1, aviao ? aviao.position.z - camera.position.z : 30);
-  const halfHeight = distanciaPlano * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const halfWidth = halfHeight * camera.aspect;
-  const margemX = halfWidth * 0.08;
-  const margemY = halfHeight * 0.08;
+function calcularLimitesTelaMobile() {
+  if (!isMobile) return; // não afeta o desktop
 
-  ponto.x = THREE.MathUtils.clamp(ponto.x, -halfWidth + margemX, halfWidth - margemX);
-  ponto.y = THREE.MathUtils.clamp(ponto.y, 4 + margemY, halfHeight - margemY);
-  return ponto;
+  const distanciaZ = 45; // distância aproximada entre câmera e avião no eixo Z
+  const vFOV = THREE.MathUtils.degToRad(camera.fov);
+  const alturaVisivel = 2 * Math.tan(vFOV / 2) * distanciaZ;
+  const larguraVisivel = alturaVisivel * camera.aspect;
+
+  const margem = 0.75; // deixa uma margem de segurança para o avião não sair da tela
+  LIMITE_X_MIN_MOBILE = -(larguraVisivel / 2) * margem;
+  LIMITE_X_MAX_MOBILE = (larguraVisivel / 2) * margem;
+
+  const centroY = 17;
+  LIMITE_Y_MIN_MOBILE = Math.max(5, centroY - (alturaVisivel / 2) * margem);
+  LIMITE_Y_MAX_MOBILE = Math.min(30, centroY + (alturaVisivel / 2) * margem);
 }
+calcularLimitesTelaMobile();
 
 window.addEventListener("mousemove", function (e) {
+  if (isMobile) return; // mobile usa apenas o joystick, nunca toque/mouse
   if (!aviao) return; // aguarda avião carregar
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -347,7 +368,17 @@ window.addEventListener("mousemove", function (e) {
   planoMouse.setFromNormalAndCoplanarPoint(planeNormal, planePoint);
 
   if (raycaster.ray.intersectPlane(planoMouse, targetPoint)) {
-    limitarPontoVisivel(targetPoint);
+    targetPoint.y = THREE.MathUtils.clamp(
+      targetPoint.y,
+      LIMITE_Y_MIN,
+      LIMITE_Y_MAX,
+    );
+    targetPoint.x = THREE.MathUtils.clamp(
+      targetPoint.x,
+      LIMITE_X_MIN,
+      LIMITE_X_MAX,
+    );
+
     cursor3D.position.copy(targetPoint);
   }
 
@@ -366,16 +397,15 @@ window.addEventListener("mousemove", function (e) {
 // A mira (cursor3D / targetPoint) é deslocada de forma incremental, e o avião
 // dispara automaticamente enquanto a mira estiver sendo modificada.
 
-const JOYSTICK_VELOCIDADE = isMobile ? 0.9 : 1.0; // velocidade de deslocamento da mira por frame
+const JOYSTICK_VELOCIDADE = 1.0; // velocidade de deslocamento da mira por frame
 let joystickAtivo = false;
 let joystickVetor = { x: 0, y: 0 };
-let joystickPending = { x: 0, y: 0 };
-let joystickFrameScheduled = false;
 
-function flushJoystickInput() {
-  joystickFrameScheduled = false;
-  joystickVetor.x = joystickPending.x;
-  joystickVetor.y = joystickPending.y;
+window.addEventListener("joystickMove", (e) => {
+  if (!aviao) return;
+
+  joystickVetor.x = e.detail.x;
+  joystickVetor.y = e.detail.y;
 
   if (!joystickAtivo) {
     joystickAtivo = true;
@@ -392,26 +422,12 @@ function flushJoystickInput() {
   mouseTimer = setTimeout(() => {
     mouseMovendo = false;
   }, 100);
-}
-
-window.addEventListener("joystickMove", (e) => {
-  if (!aviao) return;
-
-  joystickPending.x = e.detail.x;
-  joystickPending.y = e.detail.y;
-
-  if (!joystickFrameScheduled) {
-    joystickFrameScheduled = true;
-    requestAnimationFrame(flushJoystickInput);
-  }
 });
 
 window.addEventListener("joystickEnd", () => {
   joystickAtivo = false;
   joystickVetor.x = 0;
   joystickVetor.y = 0;
-  joystickPending.x = 0;
-  joystickPending.y = 0;
 
   clearInterval(intervaloDisparo);
   intervaloDisparo = null;
@@ -425,7 +441,16 @@ function atualizarMiraPorJoystick() {
   cursor3D.position.x += joystickVetor.x * JOYSTICK_VELOCIDADE;
   cursor3D.position.y -= joystickVetor.y * JOYSTICK_VELOCIDADE; // eixo Y da tela é invertido
 
-  limitarPontoVisivel(cursor3D.position);
+  // No mobile usamos os limites calculados para a tela do celular; no desktop
+  // o comportamento é exatamente o mesmo de antes (LIMITE_X/Y_MIN/MAX).
+  const xMin = isMobile ? LIMITE_X_MIN_MOBILE : LIMITE_X_MIN;
+  const xMax = isMobile ? LIMITE_X_MAX_MOBILE : LIMITE_X_MAX;
+  const yMin = isMobile ? LIMITE_Y_MIN_MOBILE : LIMITE_Y_MIN;
+  const yMax = isMobile ? LIMITE_Y_MAX_MOBILE : LIMITE_Y_MAX;
+
+  cursor3D.position.x = THREE.MathUtils.clamp(cursor3D.position.x, xMin, xMax);
+  cursor3D.position.y = THREE.MathUtils.clamp(cursor3D.position.y, yMin, yMax);
+
   targetPoint.copy(cursor3D.position);
 }
 
@@ -456,7 +481,7 @@ loader.load("./assets/destroyer.glb", function (gltf) {
   const aviaoZ = aviao ? aviao.position.z : camera.position.z;
   fighter.position.set(-300, 20, aviaoZ - 100);
   fighter.rotation.y = 0;
-  fighter.scale.set(isMobile ? 0.3 : 0.5, isMobile ? 0.3 : 0.5, isMobile ? 0.3 : 0.5);
+  fighter.scale.set(0.5, 0.5, 0.5);
   scene.add(fighter);
   asset.object = fighter;
   asset.loaded = true;
@@ -504,25 +529,6 @@ function spawnProximoFighter() {
 let fighterExplosionPlayed = false;
 let fighter2ExplosionPlayed = false;
 const movimentosFighters = new Map();
-
-function fighterSaiuDaTela(inimigo) {
-  if (!isMobile || !inimigo || !camera) return false;
-
-  const pos = new THREE.Vector3();
-  inimigo.getWorldPosition(pos);
-  const distanciaPlano = Math.max(1, pos.z - camera.position.z);
-  const halfHeight = distanciaPlano * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const halfWidth = halfHeight * camera.aspect;
-
-  return (
-    pos.x < camera.position.x - halfWidth * 1.2 ||
-    pos.x > camera.position.x + halfWidth * 1.2 ||
-    pos.y < -10 ||
-    pos.y > 40 ||
-    pos.z > camera.position.z + halfHeight * 1.2 ||
-    pos.z < camera.position.z - halfHeight * 2.4
-  );
-}
 
 function obterYAlvoInimigo(inimigo, yBase) {
   if (!inimigo) return yBase;
@@ -597,7 +603,7 @@ function moverFighter() {
 
     asset.bb.setFromObject(fighter);
 
-    if (fighterSaiuDaTela(fighter)) {
+    if (fighter.position.z > camera.position.z ) {
       // Remover tiros deste fighter
       for (let i = tirosInimigos.length - 1; i >= 0; i--) {
         if (tirosInimigos[i].origem === fighter) {
@@ -609,7 +615,7 @@ function moverFighter() {
       }
 
       scene.remove(fighter);
-      asset.loaded = false;
+asset.loaded = false;
       fighterAbatido = false;
       fighterExplosionPlayed = false;
     }
@@ -636,7 +642,7 @@ function moverFighter() {
       fighter2.rotation.x -= 0.1;
     }
 
-    if (fighterSaiuDaTela(fighter2)) {
+    if (fighter2.position.z > camera.position.z) {
       scene.remove(fighter2);
       fighter2.rotation.y = Math.PI;
       fighter2.rotation.x = 0;
@@ -658,7 +664,7 @@ function moverFighter() {
 
     asset2.bb.setFromObject(fighter2);
 
-    if (fighterSaiuDaTela(fighter2)) {
+    if (fighter2.position.x < -150) {
       // Remover tiros deste fighter
       for (let i = tirosInimigos.length - 1; i >= 0; i--) {
         if (tirosInimigos[i].origem === fighter2) {
@@ -683,7 +689,29 @@ function moverFighter() {
 
 const tirosInimigos = [];
 let contadorColisoesAviao = 0;
-const MAX_TIROS_INIMIGOS = isMobile ? 6 : 12;
+
+// Usados para checar se um fighter está dentro do campo de visão da câmera.
+// Isso evita que, no celular (onde o campo de visão é mais estreito), os
+// caças continuem atirando indefinidamente enquanto estão fora da tela,
+// o que acumulava tiros sem necessidade e derrubava o FPS.
+const frustum = new THREE.Frustum();
+const projScreenMatrix = new THREE.Matrix4();
+
+function fighterVisivelNaTela(bb) {
+  projScreenMatrix.multiplyMatrices(
+    camera.projectionMatrix,
+    camera.matrixWorldInverse,
+  );
+  frustum.setFromProjectionMatrix(projScreenMatrix);
+  return frustum.intersectsBox(bb);
+}
+
+// No desktop mantém o comportamento original (sempre pode atirar).
+// No mobile, só atira quando o fighter está visível na tela.
+function podeInimigoAtirar(bb) {
+  if (!isMobile) return true;
+  return fighterVisivelNaTela(bb);
+}
 
 function cloneTiroInimigo(spaceShip) {
   if (!spaceShip) return;
@@ -709,15 +737,6 @@ function cloneTiroInimigo(spaceShip) {
   clone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direcao);
 
   const bb = new THREE.Box3().setFromObject(clone);
-
-  if (tirosInimigos.length >= MAX_TIROS_INIMIGOS) {
-    const tiroAntigo = tirosInimigos.shift();
-    if (tiroAntigo?.mesh) {
-      scene.remove(tiroAntigo.mesh);
-      tiroAntigo.mesh.geometry.dispose();
-      tiroAntigo.mesh.material.dispose();
-    }
-  }
 
   scene.add(clone);
 
@@ -764,11 +783,11 @@ function reiniciarIntervalos() {
   spawnInterval = setInterval(spawnProximoFighter, INTERVALO_FIGHTERS);
 
   intervaloTiroFighter = setInterval(() => {
-    if (asset.loaded && !fighterAbatido) cloneTiroInimigo(fighter);
+    if (asset.loaded && !fighterAbatido && podeInimigoAtirar(asset.bb)) cloneTiroInimigo(fighter);
   }, CADENCIA_TIRO);
 
   intervaloTiroFighter2 = setInterval(() => {
-    if (asset2.loaded && !fighter2Abatido) cloneTiroInimigo(fighter2);
+    if (asset2.loaded && !fighter2Abatido && podeInimigoAtirar(asset2.bb)) cloneTiroInimigo(fighter2);
   }, CADENCIA_TIRO);
 }
 //-----------------------------------------------------------------------------------------------
@@ -776,7 +795,6 @@ function reiniciarIntervalos() {
 //-----------------------------------------------------------------------------------------------
 
 const tirosPlayer = [];
-const MAX_TIROS_PLAYER = isMobile ? 8 : 16;
 
 let fighterAbatido = false;
 let fighter2Abatido = false;
@@ -785,7 +803,6 @@ let contadorFightersAbatidos = 0;
 
 function atirar() {
   if (!aviao) return; // aguardar avião carregar
-  playSound("./assets/audio/gun-shot.mp3");
   playSound("./assets/audio/gun-shot.mp3");
   const tiro = new THREE.Mesh(
     new THREE.BoxGeometry(0.1, 0.1, 8),
@@ -807,21 +824,12 @@ function atirar() {
   tiro.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direcao);
 
   const bb = new THREE.Box3().setFromObject(tiro);
-
-  if (tirosPlayer.length >= MAX_TIROS_PLAYER) {
-    const tiroAntigo = tirosPlayer.shift();
-    if (tiroAntigo?.mesh) {
-      scene.remove(tiroAntigo.mesh);
-      tiroAntigo.mesh.geometry.dispose();
-      tiroAntigo.mesh.material.dispose();
-    }
-  }
-
   scene.add(tiro);
   tirosPlayer.push({ mesh: tiro, bb, direcao, velocidade: 2 });
 }
 
 window.addEventListener("mousedown", () => {
+  if (isMobile) return; // mobile atira apenas via joystick
   if (intervaloDisparo) return;
 if(!jogoIniciado) return;
   atirar();
@@ -829,6 +837,7 @@ if(!jogoIniciado) return;
 });
 
 window.addEventListener("mouseup", () => {
+  if (isMobile) return; // mobile atira apenas via joystick
   clearInterval(intervaloDisparo);
   intervaloDisparo = null;
 });
@@ -900,12 +909,13 @@ let podeMover = true;
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && podeMover) {
     podeMover = false;
-    cursor3D.visible = false;
+    if (!isMobile) cursor3D.visible = false;
     document.body.style.cursor = "default";
   }
 });
 
 window.addEventListener("click", (event) => {
+  if (isMobile) return; // mobile não usa toque na tela para retomar o jogo
   if (!podeMover) {
     podeMover = true;
     cursor3D.visible = true;
@@ -963,18 +973,16 @@ playBackgroundMusic();
 
    spawnInterval = setInterval(spawnProximoFighter, INTERVALO_FIGHTERS);
   intervaloTiroFighter = setInterval(() => {
-    if (asset.loaded && !fighterAbatido) cloneTiroInimigo(fighter);
+    if (asset.loaded && !fighterAbatido && podeInimigoAtirar(asset.bb)) cloneTiroInimigo(fighter);
   }, CADENCIA_TIRO);
   intervaloTiroFighter2 = setInterval(() => {
-    if (asset2.loaded && !fighter2Abatido) cloneTiroInimigo(fighter2);
+    if (asset2.loaded && !fighter2Abatido && podeInimigoAtirar(asset2.bb)) cloneTiroInimigo(fighter2);
   }, CADENCIA_TIRO);
   render();
   buildInterface();
 });
 
 //-----------------------------------------------------------------------------------------------
-
-let frameCounter = 0;
 
 function render() {
   stats.update();
@@ -989,18 +997,14 @@ function render() {
       aviao,
     );
     cursor3D.position.z -= VELOCIDADE;
-    if (frameCounter % (isMobile ? 2 : 1) === 0) {
-      updateChunks(camera, scene);
-    }
+    updateChunks(camera, scene);
     camera.position.z -= VELOCIDADE;
     aviao.position.z -= VELOCIDADE;
     tiroPlayerAnimacao();
     tiroInimigoAnimacao();
     moverFighter();
     atualizarCamera();
-    if (frameCounter % (isMobile ? 2 : 1) === 0) {
-      atualizarBBsAviao();
-    }
+    atualizarBBsAviao();
   }
 
   dirLight.position.set(
@@ -1027,8 +1031,6 @@ function render() {
   atualizarVida();
 
   animarHealthpack(VELOCIDADE);
-
-  frameCounter += 1;
 
   const delta = clock.getDelta();
   updateWater(delta, camera);
