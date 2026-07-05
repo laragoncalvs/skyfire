@@ -26,7 +26,7 @@ export function initHealthpack(sceneParam, aviaoParam) {
     parachute.position.set(0, 0, 0);
     parachute.scale.set(0.5, 0.5, 0.5);
     healthpack.add(parachute);
-    
+
     if (medkit) {
       healthpackLoaded = true;
     }
@@ -37,7 +37,7 @@ export function initHealthpack(sceneParam, aviaoParam) {
     medkit.position.set(0, 0, 0);
     medkit.scale.set(4, 4, 4);
     healthpack.add(medkit);
-    
+
     if (parachute) {
       healthpackLoaded = true;
     }
@@ -48,23 +48,22 @@ export function animarHealthpack(VELOCIDADE) {
   if (!healthpackLoaded || !medkit || !parachute) return;
 
   healthpackTime += 0.05;
-  
+
   healthpack.position.y -= VELOCIDADE * 0.3;
   healthpack.position.z -= VELOCIDADE;
-  
+
   // Movimento ondulante em X (como paraquedas oscilando)
   healthpack.position.x = Math.sin(healthpackTime) * 5;
-  
+
   // Rotação em X para parecer caindo
   healthpack.rotation.z = Math.sin(healthpackTime) * 0.1;
-  
+
   // Remover healthpack se passar da câmera
   if (healthpack.position.z > aviaoRef.position.z + 50) {
     scene.remove(healthpack);
     healthpackTime = 0;
   }
 }
-
 
 export function spawnHealthpack(contadorFightersAbatidos) {
   if (!healthpackLoaded) return;
@@ -82,7 +81,6 @@ export function spawnHealthpack(contadorFightersAbatidos) {
     scene.add(healthpack);
   }
 }
-
 
 let atraindoHealthpack = false; // controla se já está no "modo ímã"
 
@@ -111,7 +109,7 @@ export function atractHealthpackToAviao() {
 
     healthpack.position.lerp(aviaoRef.position, forca);
 
-    if (distancia < 1) {
+    if (distancia < 0.1) {
       // Healthpack coletado
       healthpackColetado = true;
       atraindoHealthpack = false;

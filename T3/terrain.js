@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { Water } from '../build/jsm/objects/Water.js';  // Water shader in here
+import { Water } from "../build/jsm/objects/Water.js"; // Water shader in here
 import { loadingManager } from "./loadingManager.js";
 
 //-----------------------------------------------------------------------------------------------
@@ -18,10 +18,9 @@ const chunks = new Map();
 
 // ── Noise ──────────────────────────────────────────────────────
 function hash(x, y) {
-  let h = (x * 127 + y * 311) ^ (x * y);
-  h = ((h >>> 16) ^ h) * 0x45d9f3b;
-  h = ((h >>> 16) ^ h) * 0x45d9f3b;
-  return ((h >>> 16) ^ h) / 2147483648;
+  // seno determinístico, sem depender de operações bit a bit em floats grandes
+  let h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return h - Math.floor(h);
 }
 function fade(t) {
   return t * t * t * (t * (t * 6 - 15) + 10);
@@ -92,10 +91,12 @@ const textureLoader = new THREE.TextureLoader(loadingManager);
 
 function loadTex(path, repeat = 10) {
   const tex = textureLoader.load(path);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(repeat, repeat);
+  tex.wrapS = tex.wrapT = THREE.MirroredRepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 4; // volta pra 4 — geralmente já resolve 90% do aliasing
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
   return tex;
 }
 
@@ -105,7 +106,7 @@ function loadTex(path, repeat = 10) {
 // para uma textura de grama de floresta / vegetação densa em vez de neve.
 const texSand = loadTex("assets/sand.jpg", 10);
 const texGrass = loadTex("assets/grass.jpg", 16);
-const texForest = loadTex("assets/forest.jpg", 100);
+const texForest = loadTex("assets/forest.jpg", 5);
 const texRock = loadTex("assets/stone.jpg", 20);
 const texSnow = loadTex("assets/neve.jpg", 8);
 
@@ -142,26 +143,29 @@ const terrainFragmentShader = /* glsl */ `
   uniform float sandLevel;
   uniform float grassLevel;
   uniform float snowLevel;
-uniform float amp;
-uniform vec3 fogColor;
-uniform float fogNear;
-uniform float fogFar;
+  uniform float amp;
+  uniform vec3 fogColor;
+  uniform float fogNear;
+  uniform float fogFar;
 
-varying float vFogDepth;
+  uniform float sandRepeat;
+  uniform float grassRepeat;
+  uniform float forestRepeat;
+  uniform float rockRepeat;
+  uniform float snowRepeat;
+
+  varying float vFogDepth;
   varying vec2 vUv;
   varying float vHeight;
   varying vec3 vWorldNormal;
 
   void main() {
-    // Cada textura já tem seu próprio "repeat" definido via texture.repeat,
-    // então amostramos direto em vUv (UV em espaço de mundo / CHUNK_SIZE).
-    vec3 sandColor   = texture2D(sandTex,   vUv).rgb;
-    vec3 grassColor  = texture2D(grassTex,  vUv).rgb;
-    vec3 forestColor = texture2D(forestTex, vUv).rgb;
-    vec3 rockColor   = texture2D(rockTex,   vUv).rgb;
-    vec3 snowColor   = texture2D(snowTex,   vUv).rgb;
+    vec3 sandColor   = texture2D(sandTex,   vUv * sandRepeat).rgb;
+    vec3 grassColor  = texture2D(grassTex,  vUv * grassRepeat).rgb;
+    vec3 forestColor = texture2D(forestTex, vUv * forestRepeat).rgb;
+    vec3 rockColor   = texture2D(rockTex,   vUv * rockRepeat).rgb;
+    vec3 snowColor   = texture2D(snowTex,   vUv * snowRepeat).rgb;
 
-    // ── Blend por altura (usando altura normalizada hn = vHeight/amp)
     float hn = vHeight / amp;
     float sandN = sandLevel / amp;
     float grassN = grassLevel / amp;
@@ -169,38 +173,43 @@ varying float vFogDepth;
 
     float sandToGrass  = smoothstep(sandN - 0.03, sandN + 0.03, hn);
     float grassToForest = smoothstep(grassN * 0.55 - 0.05, grassN * 0.55 + 0.05, hn);
-    // reduzir o limiar para permitir neve em altitudes menores (mais visível)
-float forestToSnow = smoothstep(snowN * 0.55 - 0.15, snowN * 0.55 + 0.05, hn);
+    float forestToSnow = smoothstep(snowN * 0.55 - 0.15, snowN * 0.55 + 0.05, hn);
+
     vec3 heightColor = mix(sandColor, grassColor, sandToGrass);
     heightColor = mix(heightColor, forestColor, grassToForest);
     heightColor = mix(heightColor, snowColor, forestToSnow);
 
-    // ── Blend por inclinação: superfícies íngremes viram rocha ─
-    float slope = 1.0 - clamp(vWorldNormal.y, 0.0, 1.0); // 0 = plano, 1 = vertical
+    vec3 n = normalize(vWorldNormal);
+    float slope = 1.0 - clamp(dot(n, vec3(0.0, 1.0, 0.0)), 0.0, 1.0);
     float rockFactor = smoothstep(0.35, 0.75, slope);
 
-    // perto da água/areia não aplica rocha (evita "pedras" na praia)
     float nearSand = 1.0 - sandToGrass;
     rockFactor *= (1.0 - nearSand * 0.85);
 
     vec3 finalColor = mix(heightColor, rockColor, rockFactor);
-float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
-vec3 colorWithFog = mix(finalColor, fogColor, fogFactor);
+    float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+    vec3 colorWithFog = mix(finalColor, fogColor, fogFactor);
 
-gl_FragColor = vec4(colorWithFog, 1.0);
+    gl_FragColor = vec4(colorWithFog, 1.0);
   }
 `;
 function createTerrainMaterial() {
   return new THREE.ShaderMaterial({
+    // no createTerrainMaterial(), adicione uniforms de repeat
     uniforms: THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
-      THREE.UniformsLib.lights, // necessário para acesso às sombras
+      THREE.UniformsLib.lights,
       {
         sandTex: { value: texSand },
         grassTex: { value: texGrass },
         forestTex: { value: texForest },
         rockTex: { value: texRock },
         snowTex: { value: texSnow },
+        sandRepeat: { value: 1 },
+        grassRepeat: { value: 1 },
+        forestRepeat: { value: 3 },
+        rockRepeat: { value: 5 },
+        snowRepeat: { value: 1 },
         sandLevel: { value: sandLevel },
         grassLevel: { value: grassLevel },
         snowLevel: { value: snowLevel },
@@ -305,7 +314,10 @@ export function createWater(scene) {
 
   // Geometria já no tamanho final (evita escalar e ter que recalcular o
   // mirror camera do Water toda hora — só reposicionamos no updateWater).
-  const waterGeometry = new THREE.PlaneGeometry(WATER_GEOM_SIZE, WATER_GEOM_SIZE);
+  const waterGeometry = new THREE.PlaneGeometry(
+    WATER_GEOM_SIZE,
+    WATER_GEOM_SIZE,
+  );
 
   waterMesh = new Water(waterGeometry, {
     // resolução do render target de reflexo: maior valor reduz tremulação
@@ -350,33 +362,33 @@ export function updateWater(delta, camera) {
 //-----------------------------------------------------------------------------------------------
 //Primeiro modelo de árvore
 //-----------------------------------------------------------------------------------------------
+// Materiais e geometrias compartilhados — criados 1x só
+const trunkGeoTree = new THREE.CylinderGeometry(0.1, 0.25, 2.5, 6);
+const trunkMatTree = new THREE.MeshStandardMaterial({
+  color: 0x8b5e3c,
+  roughness: 0.9,
+});
+const foliageMatTree = new THREE.MeshStandardMaterial({
+  color: 0x2d6b18,
+  roughness: 0.8,
+});
+const treeLayerGeos = [
+  { geo: new THREE.ConeGeometry(1.8, 2.2, 7), y: 2.0 },
+  { geo: new THREE.ConeGeometry(1.4, 2.0, 7), y: 3.4 },
+  { geo: new THREE.ConeGeometry(0.9, 1.8, 7), y: 4.6 },
+];
+
 function createTree() {
   const group = new THREE.Group();
 
-  const trunkGeo = new THREE.CylinderGeometry(0.1, 0.25, 2.5, 6);
-  const trunkMat = new THREE.MeshStandardMaterial({
-    color: 0x8b5e3c,
-    roughness: 0.9,
-  });
-  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+  const trunk = new THREE.Mesh(trunkGeoTree, trunkMatTree);
   trunk.position.y = 1.25;
   trunk.castShadow = true;
   trunk.receiveShadow = true;
-
   group.add(trunk);
 
-  const foliageMat = new THREE.MeshStandardMaterial({
-    color: 0x2d6b18,
-    roughness: 0.8,
-  });
-  const layers = [
-    { r: 1.8, h: 2.2, y: 2.0 },
-    { r: 1.4, h: 2.0, y: 3.4 },
-    { r: 0.9, h: 1.8, y: 4.6 },
-  ];
-  for (const l of layers) {
-    const coneGeo = new THREE.ConeGeometry(l.r, l.h, 7);
-    const cone = new THREE.Mesh(coneGeo, foliageMat);
+  for (const l of treeLayerGeos) {
+    const cone = new THREE.Mesh(l.geo, foliageMatTree);
     cone.position.y = l.y;
     cone.castShadow = true;
     cone.receiveShadow = true;
@@ -492,7 +504,7 @@ export function createChunk(cx, cz, scene) {
   const group = new THREE.Group();
   group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
 
-  const SEGS_EXT = SEGS + 2;
+  const SEGS_EXT = SEGS + 3;
   const step = CHUNK_SIZE / SEGS;
 
   const positions = [];
@@ -604,19 +616,19 @@ export function createChunk(cx, cz, scene) {
 //-----------------------------------------------------------------------------------------------
 //Função para destruir os chunks do terreno passados
 //-----------------------------------------------------------------------------------------------
-
 export function destroyChunk(key, scene) {
   const group = chunks.get(key);
   if (!group) return;
   scene.remove(group);
   group.traverse((obj) => {
-    if (obj.geometry) obj.geometry.dispose();
-    // Não fazemos dispose do material aqui: ele é compartilhado (sharedTerrainMaterial)
-    // entre todos os chunks. Liberar memória de geometria já é suficiente.
+    // só faz dispose da geometria do terreno (finalGeo), que é única por chunk;
+    // geometrias/materiais de árvores agora são compartilhados e não devem ser destruídos
+    if (obj.geometry && obj === group.children[0]) {
+      obj.geometry.dispose();
+    }
   });
   chunks.delete(key);
 }
-
 //-----------------------------------------------------------------------------------------------
 //Função para animar o terreno
 //-----------------------------------------------------------------------------------------------

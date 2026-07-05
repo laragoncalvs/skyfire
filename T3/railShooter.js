@@ -1,3 +1,5 @@
+// Shader implementado com auxílio do Claude.ai
+
 import * as THREE from "three";
 import {
   initRenderer,
@@ -18,6 +20,13 @@ import {
   spawnHealthpack,
 } from "./healthPacks.js";
 import { loadingManager } from "./loadingManager.js";
+import {
+  spawnProximoFighter,
+  moverFighter,
+  tiroInimigoAnimacao,
+  podeInimigoAtirar,
+  cloneTiroInimigo,
+} from "./enemys.js";
 
 //-----------------------------------------------------------------------------------------------
 //Inicialização da cena, camera, renderizador
@@ -42,7 +51,7 @@ camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
   0.1,
-  180,
+  260,
 );
 
 camera.position.set(0, 22, 38);
@@ -91,8 +100,6 @@ let intervaloTiroFighter2 = null;
 //-----------------------------------------------------------------------------------------------
 // Loading manager
 //-----------------------------------------------------------------------------------------------
-
-
 
 const loader = new GLTFLoader(loadingManager);
 
@@ -152,25 +159,23 @@ function buildInterface() {
   var gui = new GUI();
 
   gui
-    .add(scene.fog, "far", 20, 190)
+    .add(scene.fog, "far", 60, 190)
     .name("Fog Far")
     .onChange(() => updateShadowVolume());
 }
 function buildInterfaceMobile() {
-    var gui = new GUI({ width: 200 });
+  var gui = new GUI({ width: 200 });
 
-const ctrl = gui
-  .add(scene.fog, "far", 20, 190)
-  .name("Fog Far")
-  .onChange(() => updateShadowVolume());
+  const ctrl = gui
+    .add(scene.fog, "far", 60, 190)
+    .name("Fog Far")
+    .onChange(() => updateShadowVolume());
 
-gui.domElement.style.position = "absolute";
-gui.domElement.style.top = "50px";   // ajuste conforme a altura do seu FPS box
-gui.domElement.style.left = "0px";   // alinhado à esquerda, embaixo do FPS
-gui.domElement.style.right = "auto";
-
+  gui.domElement.style.position = "absolute";
+  gui.domElement.style.top = "50px"; // ajuste conforme a altura do seu FPS box
+  gui.domElement.style.left = "0px"; // alinhado à esquerda, embaixo do FPS
+  gui.domElement.style.right = "auto";
 }
-
 
 //-----------------------------------------------------------------------------------------------
 // Adicionar avião com bounding box e função de colisão
@@ -339,8 +344,8 @@ if (isMobile) {
   cursor3D.visible = false;
 }
 
-const LIMITE_Y_MIN = 5;
-const LIMITE_Y_MAX = 30;
+const LIMITE_Y_MIN = 15;
+const LIMITE_Y_MAX = 100;
 const LIMITE_X_MIN = -70;
 const LIMITE_X_MAX = 70;
 
@@ -428,7 +433,7 @@ window.addEventListener("joystickMove", (e) => {
     // Dispara automaticamente assim que a mira é movida, sem precisar de botão de tiro
     if (jogoIniciado && !intervaloDisparo) {
       atirar();
-      intervaloDisparo = setInterval(atirar, 1000);
+      intervaloDisparo = setInterval(atirar, 900);
     }
   }
 
@@ -494,7 +499,7 @@ loader.load("./assets/destroyer.glb", function (gltf) {
   fighter = gltf.scene;
   // use posição do avião se disponível, senão fallback para câmera.z
   const aviaoZ = aviao ? aviao.position.z : camera.position.z;
-  fighter.position.set(-300, 20, aviaoZ - 100);
+  fighter.position.set(-300, 30, aviaoZ - 100);
   fighter.rotation.y = 0;
   fighter.scale.set(0.5, 0.5, 0.5);
   scene.add(fighter);
@@ -509,7 +514,7 @@ loader.load("./assets/destroyer.glb", function (gltf) {
   });
 
   fighter2 = fighter.clone();
-  fighter2.position.set(300, 9, aviaoZ - 100);
+  fighter2.position.set(300, 40, aviaoZ - 100);
   fighter2.rotation.y = Math.PI;
   asset2.object = fighter2;
   asset2.loaded = true;
@@ -518,301 +523,56 @@ loader.load("./assets/destroyer.glb", function (gltf) {
 });
 
 //-----------------------------------------------------------------------------------------------
-//Funções para movimentar e adicionar os fighters à cena
-//-----------------------------------------------------------------------------------------------
-
-let spawnQueue = ["fighter", "fighter2"];
-let currentSpawnIndex = 0;
-
-function spawnProximoFighter() {
-  const tipo = spawnQueue[currentSpawnIndex % spawnQueue.length];
-  currentSpawnIndex++;
-  const aviaoZ = aviao ? aviao.position.z : camera.position.z;
-
-  if (tipo === "fighter" && !fighterAbatido) {
-    fighter.position.set(-200, 20, aviaoZ - 100);
-    asset.loaded = true;
-    scene.add(fighter);
-  } else if (tipo === "fighter2" && !fighter2Abatido) {
-    fighter2.position.set(200, 9, aviaoZ - 100);
-    asset2.loaded = true;
-    scene.add(fighter2);
-  }
-}
-
-
-let fighterExplosionPlayed = false;
-let fighter2ExplosionPlayed = false;
-const movimentosFighters = new Map();
-
-function obterYAlvoInimigo(inimigo, yBase) {
-  if (!inimigo) return yBase;
-
-  if (!movimentosFighters.has(inimigo)) {
-    movimentosFighters.set(inimigo, {
-      targetY: yBase + (Math.random() - 0.5) * 10,
-      timer: 20 + Math.random() * 25,
-      phase: Math.random() * Math.PI * 2,
-      amplitude: 2 + Math.random() * 3,
-    });
-  }
-
-  const estado = movimentosFighters.get(inimigo);
-  estado.timer -= 1;
-
-  if (estado.timer <= 0) {
-    estado.targetY = yBase + (Math.random() - 0.5) * 10;
-    estado.timer = 20 + Math.random() * 25;
-    estado.phase += 0.35 + Math.random() * 0.3;
-  }
-
-  const onda = Math.sin(estado.phase + estado.timer * 0.05) * estado.amplitude;
-  const variacao = Math.sin(estado.phase * 0.7 + estado.timer * 0.03) * (estado.amplitude * 0.4);
-
-  return estado.targetY + onda + variacao;
-}
-
-function moverFighter() {
-  if (!fighter && !fighter2) return;
-
-  if (fighter) {
-    const alvo1 = new THREE.Vector3(
-      200,
-      obterYAlvoInimigo(fighter, aviao.position.y),
-      aviao.position.z - 100,
-    );
-
-    if (!fighterAbatido) {
-      fighter.position.lerp(alvo1, VELOCIDADE_INIMIGO);
-    }
-
-    if (fighterAbatido) {
-      if (!fighterExplosionPlayed) {
-        playSound("./assets/audio/loud-explosion-sound.mp3");
-        fighterExplosionPlayed = true;
-      }
-
-      fighter.position.y -= 0.3;
-      fighter.rotation.x += 0.1;
-    }
-
-    if (fighter.position.y < -20) {
-      scene.remove(fighter);
-      fighter.rotation.y = 0;
-      fighter.rotation.x = 0;
-
-      // Remover tiros deste fighter
-      for (let i = tirosInimigos.length - 1; i >= 0; i--) {
-        if (tirosInimigos[i].origem === fighter) {
-          scene.remove(tirosInimigos[i].mesh);
-          tirosInimigos[i].mesh.geometry.dispose();
-          tirosInimigos[i].mesh.material.dispose();
-          tirosInimigos.splice(i, 1);
-        }
-      }
-
-      asset.loaded = false;
-      fighterAbatido = false;
-      fighterExplosionPlayed = false;
-    }
-
-    asset.bb.setFromObject(fighter);
-
-    if (fighter.position.z > camera.position.z ) {
-      // Remover tiros deste fighter
-      for (let i = tirosInimigos.length - 1; i >= 0; i--) {
-        if (tirosInimigos[i].origem === fighter) {
-          scene.remove(tirosInimigos[i].mesh);
-          tirosInimigos[i].mesh.geometry.dispose();
-          tirosInimigos[i].mesh.material.dispose();
-          tirosInimigos.splice(i, 1);
-        }
-      }
-
-      scene.remove(fighter);
-asset.loaded = false;
-      fighterAbatido = false;
-      fighterExplosionPlayed = false;
-    }
-  }
-
-  if (fighter2) {
-    const alvo2 = new THREE.Vector3(
-      -200,
-      obterYAlvoInimigo(fighter2, aviao.position.y),
-      aviao.position.z - 100,
-    );
-
-    if (!fighter2Abatido) {
-      fighter2.position.lerp(alvo2, VELOCIDADE_INIMIGO);
-    }
-
-    if (fighter2Abatido) {
-      if (!fighter2ExplosionPlayed) {
-        playSound("./assets/audio/loud-explosion-sound.mp3");
-        fighter2ExplosionPlayed = true;
-      }
-
-      fighter2.position.y -= 0.3;
-      fighter2.rotation.x -= 0.1;
-    }
-
-    if (fighter2.position.z > camera.position.z) {
-      scene.remove(fighter2);
-      fighter2.rotation.y = Math.PI;
-      fighter2.rotation.x = 0;
-
-      // Remover tiros deste fighter
-      for (let i = tirosInimigos.length - 1; i >= 0; i--) {
-        if (tirosInimigos[i].origem === fighter2) {
-          scene.remove(tirosInimigos[i].mesh);
-          tirosInimigos[i].mesh.geometry.dispose();
-          tirosInimigos[i].mesh.material.dispose();
-          tirosInimigos.splice(i, 1);
-        }
-      }
-
-      asset2.loaded = false;
-      fighter2Abatido = false;
-      fighter2ExplosionPlayed = false;
-    }
-
-    asset2.bb.setFromObject(fighter2);
-
-    if (fighter2.position.x < -150) {
-      // Remover tiros deste fighter
-      for (let i = tirosInimigos.length - 1; i >= 0; i--) {
-        if (tirosInimigos[i].origem === fighter2) {
-          scene.remove(tirosInimigos[i].mesh);
-          tirosInimigos[i].mesh.geometry.dispose();
-          tirosInimigos[i].mesh.material.dispose();
-          tirosInimigos.splice(i, 1);
-        }
-      }
-
-      scene.remove(fighter2);
-      asset2.loaded = false;
-      fighter2Abatido = false;
-      fighter2ExplosionPlayed = false;
-    }
-  }
-}
-
-//-----------------------------------------------------------------------------------------------
-//Criar estrutura de tiros inimigos e animação para dispará-los
+//Tiros inimigos
 //-----------------------------------------------------------------------------------------------
 
 const tirosInimigos = [];
-let contadorColisoesAviao = 0;
-
-// Usados para checar se um fighter está dentro do campo de visão da câmera.
-// Isso evita que, no celular (onde o campo de visão é mais estreito), os
-// caças continuem atirando indefinidamente enquanto estão fora da tela,
-// o que acumulava tiros sem necessidade e derrubava o FPS.
-const frustum = new THREE.Frustum();
-const projScreenMatrix = new THREE.Matrix4();
-
-function fighterVisivelNaTela(bb) {
-  projScreenMatrix.multiplyMatrices(
-    camera.projectionMatrix,
-    camera.matrixWorldInverse,
-  );
-  frustum.setFromProjectionMatrix(projScreenMatrix);
-  return frustum.intersectsBox(bb);
-}
-
-// No desktop mantém o comportamento original (sempre pode atirar).
-// No mobile, só atira quando o fighter está visível na tela.
-function podeInimigoAtirar(bb) {
-  if (!isMobile) return true;
-  return fighterVisivelNaTela(bb);
-}
-
-function cloneTiroInimigo(spaceShip) {
-  if (!spaceShip) return;
-  if (!aviao) return; // precisa do avião para mirar
-
-  const clone = new THREE.Mesh(
-    new THREE.ConeGeometry(0.1, 3, 16),
-    new THREE.MeshBasicMaterial({ color: "red" }),
-  );
-
-  const posicaoMundial = new THREE.Vector3();
-  spaceShip.getWorldPosition(posicaoMundial);
-  clone.position.copy(posicaoMundial);
-
-  // Posição atual do avião
-  const alvo = new THREE.Vector3();
-  aviao.getWorldPosition(alvo);
-
-  // Direção do tiro até o avião
-  const direcao = alvo.clone().sub(posicaoMundial).normalize();
-
-  // Girar o cone para apontar para o avião
-  clone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direcao);
-
-  const bb = new THREE.Box3().setFromObject(clone);
-
-  scene.add(clone);
-
-  tirosInimigos.push({
-    mesh: clone,
-    bb,
-    direcao,
-    velocidade: 2,
-    origem: spaceShip,
-  });
-}
-function tiroInimigoAnimacao() {
-  for (let i = tirosInimigos.length - 1; i >= 0; i--) {
-    const tiro = tirosInimigos[i];
-
-    tiro.mesh.position.addScaledVector(tiro.direcao, tiro.velocidade);
-    tiro.bb.setFromObject(tiro.mesh);
-
-    if (tiroAcertouAviao(tiro.bb)) {
-      playSound("./assets/audio/hit-player.wav");
-      contadorColisoesAviao++;
-      scene.remove(tiro.mesh);
-      tiro.mesh.geometry.dispose();
-      tiro.mesh.material.dispose();
-      tirosInimigos.splice(i, 1);
-      continue;
-    }
-    if (tiro.mesh.position.z > aviao.position.z + 20) {
-      scene.remove(tiro.mesh);
-      tiro.mesh.geometry.dispose();
-      tiro.mesh.material.dispose();
-      tirosInimigos.splice(i, 1);
-    }
-  }
-}
-
-
+let vidaState = { contadorColisoesAviao: 0 };
+let estadoFighters = { fighterAbatido: false, fighter2Abatido: false };
 
 function reiniciarIntervalos() {
   clearInterval(spawnInterval);
   clearInterval(intervaloTiroFighter);
   clearInterval(intervaloTiroFighter2);
 
-  spawnInterval = setInterval(spawnProximoFighter, INTERVALO_FIGHTERS);
+  spawnInterval = setInterval(() => {
+    spawnProximoFighter(
+      scene,
+      aviao,
+      camera,
+      fighter,
+      fighter2,
+      asset,
+      asset2,
+      estadoFighters,
+    );
+  }, INTERVALO_FIGHTERS);
 
   intervaloTiroFighter = setInterval(() => {
-    if (asset.loaded && !fighterAbatido && podeInimigoAtirar(asset.bb)) cloneTiroInimigo(fighter);
+    if (
+      asset.loaded &&
+      !estadoFighters.fighterAbatido &&
+      podeInimigoAtirar(asset.bb, camera)
+    )
+      cloneTiroInimigo(fighter, aviao, scene, tirosInimigos);
   }, CADENCIA_TIRO);
 
   intervaloTiroFighter2 = setInterval(() => {
-    if (asset2.loaded && !fighter2Abatido && podeInimigoAtirar(asset2.bb)) cloneTiroInimigo(fighter2);
+    if (
+      asset2.loaded &&
+      !estadoFighters.fighter2Abatido &&
+      podeInimigoAtirar(asset2.bb, camera)
+    )
+      cloneTiroInimigo(fighter2, aviao, scene, tirosInimigos);
   }, CADENCIA_TIRO);
 }
+
 //-----------------------------------------------------------------------------------------------
 //Criar estrutura de tiros player e animação para dispará-los
 //-----------------------------------------------------------------------------------------------
 
 const tirosPlayer = [];
 
-let fighterAbatido = false;
-let fighter2Abatido = false;
 let intervaloDisparo = null;
 let contadorFightersAbatidos = 0;
 
@@ -846,7 +606,7 @@ function atirar() {
 window.addEventListener("mousedown", () => {
   if (isMobile) return; // mobile atira apenas via joystick
   if (intervaloDisparo) return;
-if(!jogoIniciado) return;
+  if (!jogoIniciado) return;
   atirar();
   intervaloDisparo = setInterval(atirar, 300);
 });
@@ -870,8 +630,8 @@ function tiroPlayerAnimacao() {
       if (tiro.bb.intersectsBox(asset.bb)) {
         acertou = true;
         // Só contar se o fighter ainda não foi abatido
-        if (!fighterAbatido) {
-          fighterAbatido = true;
+        if (!estadoFighters.fighterAbatido) {
+          estadoFighters.fighterAbatido = true;
           contadorFightersAbatidos++;
           if (contadorFightersAbatidos % 3 === 0) {
             spawnHealthpack(contadorFightersAbatidos);
@@ -890,8 +650,8 @@ function tiroPlayerAnimacao() {
       if (tiro.bb.intersectsBox(asset2.bb)) {
         acertou = true;
         // Só contar se o fighter2 ainda não foi abatido
-        if (!fighter2Abatido) {
-          fighter2Abatido = true;
+        if (!estadoFighters.fighter2Abatido) {
+          estadoFighters.fighter2Abatido = true;
           contadorFightersAbatidos++;
           if (contadorFightersAbatidos % 3 === 0) {
             spawnHealthpack(contadorFightersAbatidos);
@@ -949,12 +709,11 @@ function atualizarVida() {
   let vida;
 
   if (!modoInvencivel) {
-    vida = 20 - contadorColisoesAviao;
+    vida = 20 - vidaState.contadorColisoesAviao;
     lifeBar.style.width = `${vida * 10}px`;
   }
   if (vida <= 0) {
-    alert("Game Over! Você perdeu todas as vidas.");
-    location.reload();
+    mostrarGameOver();
   }
 }
 
@@ -962,19 +721,39 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "g" || event.key === "G") {
     modoInvencivel = !modoInvencivel;
 
-    document.getElementById("lifeBarContainer").style.display = modoInvencivel ? "none" : "block";
-    document.getElementById("modoInvencivel").style.display = modoInvencivel ? "block" : "none";
-
+    document.getElementById("lifeBarContainer").style.display = modoInvencivel
+      ? "none"
+      : "block";
+    document.getElementById("modoInvencivel").style.display = modoInvencivel
+      ? "block"
+      : "none";
   }
 });
+let gameOverAtivo = false;
 
-//-----------------------------------------------------------------------------------------------
-//Função para movimentar câmera
-//-----------------------------------------------------------------------------------------------
+function mostrarGameOver() {
+  if (gameOverAtivo) return; // evita chamar múltiplas vezes
+  gameOverAtivo = true;
 
-function atualizarCamera() {
-  camera.position.x += (targetCameraX.value - camera.position.x) * 0.05;
+  podeMover = false; // trava o jogo
+  if (backgroundAudio) backgroundAudio.pause();
+
+  const tela = document.getElementById("gameOverScreen");
+  const stats = document.getElementById("gameOverStats");
+
+  tela.style.display = "flex";
+
+  document.getElementById("btnReiniciar").onclick = () => {
+    location.reload();
+  };
+
+  document.body.style.cursor = "default";
+  cursor3D.visible = false;
 }
+//-----------------------------------------------------------------------------------------------
+//Criar água e clock para animação
+//-----------------------------------------------------------------------------------------------
+
 createWater(scene);
 const clock = new THREE.Clock();
 
@@ -983,25 +762,44 @@ const clock = new THREE.Clock();
 window.addEventListener("iniciarJogo", () => {
   if (jogoIniciado) return; // evita iniciar duas vezes
   jogoIniciado = true;
-playBackgroundMusic();
+  playBackgroundMusic();
   document.body.style.cursor = "none";
 
-   spawnInterval = setInterval(spawnProximoFighter, INTERVALO_FIGHTERS);
+  spawnInterval = setInterval(() => {
+    spawnProximoFighter(
+      scene,
+      aviao,
+      camera,
+      fighter,
+      fighter2,
+      asset,
+      asset2,
+      estadoFighters,
+    );
+  }, INTERVALO_FIGHTERS);
   intervaloTiroFighter = setInterval(() => {
-    if (asset.loaded && !fighterAbatido && podeInimigoAtirar(asset.bb)) cloneTiroInimigo(fighter);
+    if (
+      asset.loaded &&
+      !estadoFighters.fighterAbatido &&
+      podeInimigoAtirar(asset.bb, camera)
+    )
+      cloneTiroInimigo(fighter, aviao, scene, tirosInimigos);
   }, CADENCIA_TIRO);
   intervaloTiroFighter2 = setInterval(() => {
-    if (asset2.loaded && !fighter2Abatido && podeInimigoAtirar(asset2.bb)) cloneTiroInimigo(fighter2);
+    if (
+      asset2.loaded &&
+      !estadoFighters.fighter2Abatido &&
+      podeInimigoAtirar(asset2.bb, camera)
+    )
+      cloneTiroInimigo(fighter2, aviao, scene, tirosInimigos);
   }, CADENCIA_TIRO);
   render();
-  if(!isMobile){
-  buildInterface();
-  } else{
+  if (!isMobile) {
+    buildInterface();
+  } else {
     buildInterfaceMobile();
   }
 });
-
-
 
 //-----------------------------------------------------------------------------------------------
 
@@ -1022,9 +820,27 @@ function render() {
     camera.position.z -= VELOCIDADE;
     aviao.position.z -= VELOCIDADE;
     tiroPlayerAnimacao();
-    tiroInimigoAnimacao();
-    moverFighter();
-    atualizarCamera();
+    tiroInimigoAnimacao(
+      tirosInimigos,
+      aviao,
+      scene,
+      modoInvencivel,
+      tiroAcertouAviao,
+      vidaState,
+    );
+    moverFighter(
+      scene,
+      aviao,
+      camera,
+      fighter,
+      fighter2,
+      asset,
+      asset2,
+      null,
+      tirosInimigos,
+      estadoFighters,
+      VELOCIDADE_INIMIGO,
+    );
     atualizarBBsAviao();
   }
 
@@ -1037,9 +853,9 @@ function render() {
   if (atractHealthpackToAviao()) {
     if (!modoInvencivel) {
       // Recuperar 5 pontos de vida ao pegar o healthpack
-      const vidaAtual = 20 - contadorColisoesAviao;
+      const vidaAtual = 20 - vidaState.contadorColisoesAviao;
       const vidaNova = Math.min(vidaAtual + 5, 20);
-      contadorColisoesAviao = 20 - vidaNova;
+      vidaState.contadorColisoesAviao = 20 - vidaNova;
     }
   }
 

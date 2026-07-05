@@ -31,7 +31,8 @@
          border: 2px solid #23242a;
       }
 
-      #webgl-output, #container {
+      #webgl-output,
+      #container {
          display: none;
       }
 
@@ -85,7 +86,8 @@
          z-index: 30;
          display: flex;
          gap: 10px;
-         display: none; /* exibido via CSS media query abaixo, em telas touch/estreitas */
+         display: none;
+         /* exibido via CSS media query abaixo, em telas touch/estreitas */
       }
 
       .ctrlButton {
@@ -119,7 +121,8 @@
          height: 120px;
          z-index: 30;
          touch-action: none;
-         display: none; /* exibido via CSS media query abaixo, em telas touch/estreitas */
+         display: none;
+         /* exibido via CSS media query abaixo, em telas touch/estreitas */
       }
 
       #joystickBase {
@@ -143,7 +146,8 @@
       }
 
       /* Mostra o joystick em dispositivos com ponteiro "grosso" (touch) ou telas estreitas */
-      @media (max-width: 900px), (pointer: coarse) {
+      @media (max-width: 900px),
+      (pointer: coarse) {
          #joystickContainer {
             display: block;
          }
@@ -157,9 +161,11 @@
             height: 40px;
             font-size: 18px;
          }
+
          #topControls {
             display: block;
          }
+
 
       }
    </style>
@@ -172,157 +178,173 @@
          {"imports": {"three": "../build/three.module.js"}} 
       </script>
 
- <script type="module">
-   const progressoEl = document.getElementById('barraProgresso');
-   const iniciarButton = document.getElementById('iniciarButton');
+   <script type="module">
+      const progressoEl = document.getElementById('barraProgresso');
+      const iniciarButton = document.getElementById('iniciarButton');
 
-   window.addEventListener('loadingProgress', (e) => {
-      progressoEl.style.width = e.detail + '%';
-   });
-
-   window.addEventListener('loadingComplete', () => {
-      iniciarButton.disabled = false;
-      iniciarButton.textContent = 'START';
-   });
-
-   iniciarButton.addEventListener('click', () => {
-      document.getElementById('telaCarregamento').style.display = 'none';
-      document.getElementById('webgl-output').style.display = 'block';
-      document.getElementById('container').style.display = 'block';
-            window.dispatchEvent(new CustomEvent('iniciarJogo'));
-
-   });
-
-   /* ------------------------------------------------------------------ */
-   /* Botão de fullscreen                                                */
-   /* ------------------------------------------------------------------ */
-   const fullscreenBtn = document.getElementById('fullscreenBtn');
-
-   fullscreenBtn.addEventListener('click', () => {
-      if (!document.fullscreenElement) {
-         document.documentElement.requestFullscreen().catch(() => {});
-      } else {
-         document.exitFullscreen();
-      }
-   });
-
-   document.addEventListener('fullscreenchange', () => {
-      fullscreenBtn.textContent = document.fullscreenElement ? '⛶' : '⛶';
-      fullscreenBtn.title = document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia';
-   });
-
-   /* ------------------------------------------------------------------ */
-   /* Botão de música                                                     */
-   /* ------------------------------------------------------------------ */
-   const musicBtn = document.getElementById('musicBtn');
-   let musicOn = true;
-
-   musicBtn.addEventListener('click', () => {
-      musicOn = !musicOn;
-      musicBtn.textContent = musicOn ? '🔊' : '🔇';
-      window.dispatchEvent(new CustomEvent('toggleMusic'));
-   });
-
-   /* ------------------------------------------------------------------ */
-   /* Joystick virtual (funciona com touch e mouse via Pointer Events)   */
-   /* ------------------------------------------------------------------ */
-   const joystickContainer = document.getElementById('joystickContainer');
-   const joystickKnob = document.getElementById('joystickKnob');
-
-   const CENTRO = 60;    // metade da largura/altura do container (120px)
-   const RAIO_KNOB = 25;  // metade da largura/altura do knob (50px)
-   const DIST_MAX = CENTRO - RAIO_KNOB * 0.4;
-
-   let pointerAtivoId = null;
-   let joystickFrame = null;
-
-   function posicionarKnob(x, y) {
-      joystickKnob.style.left = `${CENTRO + x - RAIO_KNOB}px`;
-      joystickKnob.style.top = `${CENTRO + y - RAIO_KNOB}px`;
-   }
-
-   function processarMovimento(clientX, clientY) {
-      const rect = joystickContainer.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-
-      let dx = clientX - cx;
-      let dy = clientY - cy;
-      const dist = Math.hypot(dx, dy);
-
-      if (dist > DIST_MAX) {
-         dx = (dx / dist) * DIST_MAX;
-         dy = (dy / dist) * DIST_MAX;
-      }
-
-      posicionarKnob(dx, dy);
-
-      // Vetor normalizado entre -1 e 1
-      const nx = dx / DIST_MAX;
-      const ny = dy / DIST_MAX;
-
-      if (joystickFrame) {
-         cancelAnimationFrame(joystickFrame);
-      }
-
-      joystickFrame = requestAnimationFrame(() => {
-         joystickFrame = null;
-         window.dispatchEvent(new CustomEvent('joystickMove', { detail: { x: nx, y: ny } }));
+      window.addEventListener('loadingProgress', (e) => {
+         progressoEl.style.width = e.detail + '%';
       });
-   }
 
-   function finalizarJoystick(e) {
-      if (e.pointerId !== pointerAtivoId) return;
-      pointerAtivoId = null;
-      if (joystickFrame) {
-         cancelAnimationFrame(joystickFrame);
-         joystickFrame = null;
+      window.addEventListener('loadingComplete', () => {
+         iniciarButton.disabled = false;
+         iniciarButton.textContent = 'START';
+      });
+
+      iniciarButton.addEventListener('click', () => {
+         document.getElementById('telaCarregamento').style.display = 'none';
+         document.getElementById('webgl-output').style.display = 'block';
+         document.getElementById('container').style.display = 'block';
+         window.dispatchEvent(new CustomEvent('iniciarJogo'));
+
+      });
+
+      /* ------------------------------------------------------------------ */
+      /* Botão de fullscreen                                                */
+      /* ------------------------------------------------------------------ */
+      const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+      fullscreenBtn.addEventListener('click', () => {
+         if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => { });
+         } else {
+            document.exitFullscreen();
+         }
+      });
+
+      document.addEventListener('fullscreenchange', () => {
+         fullscreenBtn.textContent = document.fullscreenElement ? '⛶' : '⛶';
+         fullscreenBtn.title = document.fullscreenElement ? 'Sair da tela cheia' : 'Tela cheia';
+      });
+
+      /* ------------------------------------------------------------------ */
+      /* Botão de música                                                     */
+      /* ------------------------------------------------------------------ */
+      const musicBtn = document.getElementById('musicBtn');
+      let musicOn = true;
+
+      musicBtn.addEventListener('click', () => {
+         musicOn = !musicOn;
+         musicBtn.textContent = musicOn ? '🔊' : '🔇';
+         window.dispatchEvent(new CustomEvent('toggleMusic'));
+      });
+
+      /* ------------------------------------------------------------------ */
+      /* Joystick virtual (funciona com touch e mouse via Pointer Events)   */
+      /* ------------------------------------------------------------------ */
+      const joystickContainer = document.getElementById('joystickContainer');
+      const joystickKnob = document.getElementById('joystickKnob');
+
+      const CENTRO = 60;    // metade da largura/altura do container (120px)
+      const RAIO_KNOB = 25;  // metade da largura/altura do knob (50px)
+      const DIST_MAX = CENTRO - RAIO_KNOB * 0.4;
+
+      let pointerAtivoId = null;
+      let joystickFrame = null;
+
+      function posicionarKnob(x, y) {
+         joystickKnob.style.left = `${CENTRO + x - RAIO_KNOB}px`;
+         joystickKnob.style.top = `${CENTRO + y - RAIO_KNOB}px`;
       }
-      posicionarKnob(0, 0);
-      window.dispatchEvent(new CustomEvent('joystickEnd'));
-   }
 
-   joystickContainer.addEventListener('pointerdown', (e) => {
-      pointerAtivoId = e.pointerId;
-      joystickContainer.setPointerCapture(e.pointerId);
-      processarMovimento(e.clientX, e.clientY);
-   });
+      function processarMovimento(clientX, clientY) {
+         const rect = joystickContainer.getBoundingClientRect();
+         const cx = rect.left + rect.width / 2;
+         const cy = rect.top + rect.height / 2;
 
-   joystickContainer.addEventListener('pointermove', (e) => {
-      if (e.pointerId !== pointerAtivoId) return;
-      processarMovimento(e.clientX, e.clientY);
-   });
+         let dx = clientX - cx;
+         let dy = clientY - cy;
+         const dist = Math.hypot(dx, dy);
 
-   joystickContainer.addEventListener('pointerup', finalizarJoystick);
-   joystickContainer.addEventListener('pointercancel', finalizarJoystick);
-</script>
-     <div id="telaCarregamento">
-      <img src="assets/background.png" alt="Background" style="width: 100vw; height: 100vh; object-fit: cover; position: absolute; top: 0; left: 0; z-index: -1;">
+         if (dist > DIST_MAX) {
+            dx = (dx / dist) * DIST_MAX;
+            dy = (dy / dist) * DIST_MAX;
+         }
+
+         posicionarKnob(dx, dy);
+
+         // Vetor normalizado entre -1 e 1
+         const nx = dx / DIST_MAX;
+         const ny = dy / DIST_MAX;
+
+         if (joystickFrame) {
+            cancelAnimationFrame(joystickFrame);
+         }
+
+         joystickFrame = requestAnimationFrame(() => {
+            joystickFrame = null;
+            window.dispatchEvent(new CustomEvent('joystickMove', { detail: { x: nx, y: ny } }));
+         });
+      }
+
+      function finalizarJoystick(e) {
+         if (e.pointerId !== pointerAtivoId) return;
+         pointerAtivoId = null;
+         if (joystickFrame) {
+            cancelAnimationFrame(joystickFrame);
+            joystickFrame = null;
+         }
+         posicionarKnob(0, 0);
+         window.dispatchEvent(new CustomEvent('joystickEnd'));
+      }
+
+      joystickContainer.addEventListener('pointerdown', (e) => {
+         pointerAtivoId = e.pointerId;
+         joystickContainer.setPointerCapture(e.pointerId);
+         processarMovimento(e.clientX, e.clientY);
+      });
+
+      joystickContainer.addEventListener('pointermove', (e) => {
+         if (e.pointerId !== pointerAtivoId) return;
+         processarMovimento(e.clientX, e.clientY);
+      });
+
+      joystickContainer.addEventListener('pointerup', finalizarJoystick);
+      joystickContainer.addEventListener('pointercancel', finalizarJoystick);
+   </script>
+   <div id="telaCarregamento">
+      <img src="assets/background.png" alt="Background"
+         style="width: 100vw; height: 100vh; object-fit: cover; position: absolute; top: 0; left: 0; z-index: -1;">
       <div id="barraCarregamento">
-   <div id="barraProgresso" style="width:0%;height:100%;background:linear-gradient(to right, #11bfc2, #00ffaa);transition:width .2s;"></div>
-</div>
-<button id="iniciarButton" disabled>Carregando...</button>
-     </div>
-
-      <div id="container">
-         <div id="lifeBarContainer">
-            <div id="lifeBar"></div>
-            <div id="modoInvencivel" style="display: none;">Modo de invencibilidade ativo</div>
-         </div>
-
-         <div id="topControls">
-            <button id="fullscreenBtn" class="ctrlButton" title="Tela cheia">⛶</button>
-            <button id="musicBtn" class="ctrlButton" title="Música">🔊</button>
-         </div>
-
-         <div id="joystickContainer">
-            <div id="joystickBase"></div>
-            <div id="joystickKnob"></div>
+         <div id="barraProgresso"
+            style="width:0%;height:100%;background:linear-gradient(to right, #11bfc2, #00ffaa);transition:width .2s;">
          </div>
       </div>
+      <button id="iniciarButton" disabled>Carregando...</button>
+   </div>
 
+   <div id="container">
+      <div id="lifeBarContainer">
+         <div id="lifeBar"></div>
+         <div id="modoInvencivel" style="display: none;">Modo de invencibilidade ativo</div>
+      </div>
 
-   <div id="webgl-output" >
+      <div id="topControls">
+         <button id="fullscreenBtn" class="ctrlButton" title="Tela cheia">⛶</button>
+         <button id="musicBtn" class="ctrlButton" title="Música">🔊</button>
+      </div>
+
+      <div id="joystickContainer">
+         <div id="joystickBase"></div>
+         <div id="joystickKnob"></div>
+      </div>
+   </div>
+
+   <div id="gameOverScreen" style="
+  display:none;
+  position:fixed; top:0; left:0; width:100%; height:100%;
+  background:rgba(0,0,0,0.85);
+  color:#fff; z-index:999;
+  flex-direction:column; align-items:center; justify-content:center;
+  font-family:sans-serif; text-align:center;">
+      <h1 style="font-size:3rem; color:#ff3b3b; margin-bottom:10px;">GAME OVER</h1>
+      <button id="btnReiniciar" style="
+    padding:12px 30px; font-size:1.1rem; cursor:pointer;
+    background:#ff3b3b; color:#fff; border:none; border-radius:6px;">
+         Reiniciar
+      </button>
+   </div>
+   <div id="webgl-output">
       <script type="module" src="railShooter.js"></script>
    </div>
 </body>
