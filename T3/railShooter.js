@@ -156,6 +156,21 @@ function buildInterface() {
     .name("Fog Far")
     .onChange(() => updateShadowVolume());
 }
+function buildInterfaceMobile() {
+    var gui = new GUI({ width: 200 });
+
+const ctrl = gui
+  .add(scene.fog, "far", 20, 190)
+  .name("Fog Far")
+  .onChange(() => updateShadowVolume());
+
+gui.domElement.style.position = "absolute";
+gui.domElement.style.top = "50px";   // ajuste conforme a altura do seu FPS box
+gui.domElement.style.left = "0px";   // alinhado à esquerda, embaixo do FPS
+gui.domElement.style.right = "auto";
+
+}
+
 
 //-----------------------------------------------------------------------------------------------
 // Adicionar avião com bounding box e função de colisão
@@ -413,7 +428,7 @@ window.addEventListener("joystickMove", (e) => {
     // Dispara automaticamente assim que a mira é movida, sem precisar de botão de tiro
     if (jogoIniciado && !intervaloDisparo) {
       atirar();
-      intervaloDisparo = setInterval(atirar, 300);
+      intervaloDisparo = setInterval(atirar, 1000);
     }
   }
 
@@ -979,8 +994,14 @@ playBackgroundMusic();
     if (asset2.loaded && !fighter2Abatido && podeInimigoAtirar(asset2.bb)) cloneTiroInimigo(fighter2);
   }, CADENCIA_TIRO);
   render();
+  if(!isMobile){
   buildInterface();
+  } else{
+    buildInterfaceMobile();
+  }
 });
+
+
 
 //-----------------------------------------------------------------------------------------------
 

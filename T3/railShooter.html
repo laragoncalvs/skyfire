@@ -85,6 +85,7 @@
          z-index: 30;
          display: flex;
          gap: 10px;
+         display: none; /* exibido via CSS media query abaixo, em telas touch/estreitas */
       }
 
       .ctrlButton {
@@ -149,13 +150,15 @@
 
          #lifeBarContainer {
             left: 30vw;
-            width: 150px;
          }
 
          .ctrlButton {
             width: 40px;
             height: 40px;
             font-size: 18px;
+         }
+         #topControls {
+            display: block;
          }
       }
    </style>
